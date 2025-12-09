@@ -1,0 +1,7 @@
+aioquic==0.9.20
+aiohttp==3.9.1
+opencv-python>=4.8.1.78
+numpy>=1.26.0
+Pillow>=10.1.0
+pycryptodome>=3.19.0
+
