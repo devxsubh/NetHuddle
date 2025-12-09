@@ -179,7 +179,6 @@ const connection = await connectToQUIC('https://localhost:4433');
 ### Tasks
 - [ ] Integrate Prometheus client
 - [ ] Expose metrics endpoint
-- [ ] Create Grafana dashboards
 - [ ] Add real-time metrics to frontend
 - [ ] Document Wireshark capture procedures
 - [ ] Create performance comparison charts
@@ -268,7 +267,6 @@ const rttGauge = new prometheus.Gauge({
 - STUN server (public or self-hosted)
 - TURN server (coturn)
 - Prometheus
-- Grafana
 
 ---
 

@@ -61,23 +61,7 @@
 - Round Trip Time (RTT)
 - Throughput
 
-### 5. Grafana Dashboard Configuration ✅
-
-**File**: `grafana/dashboards/network-dashboard.json`
-
-- ✅ Pre-configured Grafana dashboard
-- ✅ Multiple panels for different metrics
-- ✅ HTTP request monitoring
-- ✅ WebSocket monitoring
-- ✅ Network monitoring
-- ✅ File transfer monitoring
-- ✅ WebRTC monitoring
-- ✅ QUIC monitoring
-- ✅ Database monitoring
-
-### 6. Prometheus Configuration ✅
-
-**File**: `grafana/prometheus.yml`
+### 5. Prometheus Configuration ✅
 
 - ✅ Prometheus scrape configuration
 - ✅ Server metrics endpoint configuration
@@ -91,31 +75,15 @@ cd Server
 npm install prom-client
 ```
 
-### 2. Start Prometheus
+### 2. Start Prometheus (Optional)
 
 ```bash
 # Download Prometheus from https://prometheus.io/download/
-# Or use Docker
+# Or use Docker with your own prometheus.yml configuration
 docker run -d -p 9090:9090 \
-  -v $(pwd)/grafana/prometheus.yml:/etc/prometheus/prometheus.yml \
+  -v /path/to/your/prometheus.yml:/etc/prometheus/prometheus.yml \
   prom/prometheus
 ```
-
-### 3. Start Grafana
-
-```bash
-# Using Docker
-docker run -d -p 3000:3000 \
-  -v $(pwd)/grafana/dashboards:/var/lib/grafana/dashboards \
-  grafana/grafana
-```
-
-### 4. Import Dashboard
-
-1. Open Grafana at http://localhost:3000
-2. Login (default: admin/admin)
-3. Add Prometheus data source: http://localhost:9090
-4. Import dashboard from `grafana/dashboards/network-dashboard.json`
 
 ## Usage
 
@@ -135,11 +103,6 @@ import { MetricsDashboard } from '@/components/monitoring/MetricsDashboard';
 <MetricsDashboard />
 ```
 
-#### Grafana Dashboard
-
-1. Open http://localhost:3000
-2. Navigate to Dashboards
-3. Select "Network Communication System Dashboard"
 
 ## Metrics Details
 
@@ -217,7 +180,7 @@ register.registerMetric(customMetric);
 
 ### Prometheus Alerts
 
-Create `grafana/alerts.yml`:
+Create your own `alerts.yml`:
 
 ```yaml
 groups:
@@ -229,14 +192,6 @@ groups:
         annotations:
           summary: "High error rate detected"
 ```
-
-### Grafana Alerts
-
-Configure alerts in Grafana dashboard:
-1. Edit panel
-2. Go to Alert tab
-3. Configure conditions
-4. Set notification channels
 
 ## Performance Considerations
 
@@ -251,8 +206,8 @@ Configure alerts in Grafana dashboard:
 
 1. Check Prometheus is scraping: http://localhost:9090/targets
 2. Verify metrics endpoint: http://localhost:666/api/v1/metrics
-3. Check Grafana data source connection
-4. Verify dashboard queries
+3. Verify Prometheus configuration
+4. Check metric queries
 
 ### High Memory Usage
 

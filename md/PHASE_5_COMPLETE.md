@@ -260,7 +260,6 @@ console.log('WebTransport supported:', isWebTransportSupported());
 
 Ready for Phase 6: Network Monitoring & Visualization
 - Prometheus metrics
-- Grafana dashboards
 - Real-time monitoring
 - Performance metrics
 

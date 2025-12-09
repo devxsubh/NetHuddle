@@ -142,7 +142,6 @@ Video Source → QUIC Server → QUIC Stream → Client → Video Render
 ## Monitoring
 
 - **Prometheus**: Metrics collection
-- **Grafana**: Visualization
 - **Wireshark**: Packet analysis
 - **Custom Dashboard**: Real-time stats
 

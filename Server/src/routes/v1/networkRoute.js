@@ -13,11 +13,7 @@ router.get(
 );
 
 // Update network presence (heartbeat)
-router.post(
-	'/presence',
-	authenticate(),
-	catchAsync(networkController.updateNetworkPresence)
-);
+router.post('/presence', authenticate(), catchAsync(networkController.updateNetworkPresence));
 
 // Get network statistics
 router.get('/stats', authenticate(), catchAsync(networkController.getNetworkStats));

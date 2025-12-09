@@ -10,14 +10,14 @@ import APIError from '~/utils/apiError';
 export const getNetworkUsers = async (req, res) => {
 	const clientIp = getClientIpAddress(req);
 	const networkSubnet = getNetworkSubnet(clientIp);
-	
+
 	// Validate req.user exists
 	if (!req.user) {
 		throw new APIError('User not authenticated', httpStatus.UNAUTHORIZED);
 	}
-	
+
 	const currentUserId = req.user._id || req.user.id;
-	
+
 	if (!currentUserId) {
 		throw new APIError('Invalid user ID', httpStatus.BAD_REQUEST);
 	}
@@ -31,7 +31,7 @@ export const getNetworkUsers = async (req, res) => {
 
 	// Transform the data to return user information
 	// Filter out sessions with null users (in case user was deleted)
-		const networkUsers = sessions
+	const networkUsers = sessions
 		.filter((session) => session.user && session.user._id) // Filter out null users
 		.map((session) => {
 			const user = session.user;
@@ -67,14 +67,14 @@ export const getNetworkUsers = async (req, res) => {
 export const updateNetworkPresence = async (req, res) => {
 	const clientIp = getClientIpAddress(req);
 	const networkSubnet = getNetworkSubnet(clientIp);
-	
+
 	// Validate req.user exists
 	if (!req.user) {
 		throw new APIError('User not authenticated', httpStatus.UNAUTHORIZED);
 	}
-	
+
 	const currentUserId = req.user._id || req.user.id;
-	
+
 	if (!currentUserId) {
 		throw new APIError('Invalid user ID', httpStatus.BAD_REQUEST);
 	}
@@ -109,4 +109,3 @@ export const getNetworkStats = async (req, res) => {
 };
 
 export default { getNetworkUsers, updateNetworkPresence, getNetworkStats };
-
