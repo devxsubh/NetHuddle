@@ -1,6 +1,7 @@
 import { RoomList } from "@/components/rooms/RoomList";
 import { cookies } from "next/headers";
 import { fetchUserInfo } from "@/interfaces/server.types";
+import { PageWrapper } from "@/components/shared/PageWrapper";
 
 export default async function RoomsPage() {
   const cookiesStore = await cookies();
@@ -10,12 +11,15 @@ export default async function RoomsPage() {
   const user = await fetchUserInfo({ loggedInUserId, token });
 
   return (
-    <div className="h-full w-full p-4 max-md:p-2 bg-background">
-      <div className="max-w-4xl mx-auto">
-        <h1 className="text-3xl font-bold text-text mb-6">Rooms</h1>
+    <PageWrapper
+      title="Rooms"
+      description="Join or create chat rooms to connect with multiple users"
+      maxWidth="4xl"
+    >
+      <div className="bg-secondary-dark rounded-lg p-6 border border-border">
         <RoomList />
       </div>
-    </div>
+    </PageWrapper>
   );
 }
 

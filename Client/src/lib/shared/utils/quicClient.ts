@@ -59,6 +59,27 @@ export class QuicClient {
    */
   async connect(url: string, authToken?: string): Promise<void> {
     try {
+      // Check if WebTransport is available
+      if (typeof WebTransport === 'undefined') {
+        throw new Error(
+          'WebTransport is not supported in this browser. ' +
+          'Please use a modern browser (Chrome 97+, Edge 97+) or access via HTTPS/localhost.'
+        );
+      }
+
+      // Check secure context
+      if (typeof window !== 'undefined' && !window.isSecureContext) {
+        const protocol = window.location.protocol;
+        const hostname = window.location.hostname;
+        if (protocol !== 'https:' && hostname !== 'localhost' && hostname !== '127.0.0.1') {
+          throw new Error(
+            `WebTransport requires a secure context (HTTPS). ` +
+            `You are accessing via ${protocol}//${hostname}. ` +
+            `Please use HTTPS or access via localhost/127.0.0.1.`
+          );
+        }
+      }
+
       this.connectionStartTime = Date.now();
       
       // WebTransport uses quic:// or https:// URLs
@@ -256,28 +277,72 @@ export class QuicClient {
 export class QuicWebSocketProxy {
   private socket: WebSocket | null = null;
   private isConnected: boolean = false;
+  private connectionStartTime: number = 0;
+  private stats: QuicConnectionStats = {
+    connectionTime: 0,
+    bytesSent: 0,
+    bytesReceived: 0,
+    latency: 0,
+    framesSent: 0,
+    framesReceived: 0,
+  };
+  private callbacks: QuicClientCallbacks = {};
+
+  /**
+   * Set event callbacks
+   */
+  setCallbacks(callbacks: QuicClientCallbacks): void {
+    this.callbacks = { ...this.callbacks, ...callbacks };
+  }
 
   /**
    * Connect via WebSocket proxy
    */
-  async connect(wsUrl: string): Promise<void> {
+  async connect(wsUrl: string, authToken?: string): Promise<void> {
     return new Promise((resolve, reject) => {
+      this.connectionStartTime = Date.now();
       this.socket = new WebSocket(wsUrl);
 
       this.socket.onopen = () => {
         this.isConnected = true;
+        this.stats.connectionTime = Date.now() - this.connectionStartTime;
         console.log('QUIC Proxy: Connected via WebSocket');
+        
+        // Send authentication if provided
+        if (authToken) {
+          this.socket?.send(JSON.stringify({ token: authToken, action: 'authenticate' }));
+        }
+        
+        this.callbacks.onConnected?.();
         resolve();
       };
 
       this.socket.onerror = (error) => {
         console.error('QUIC Proxy: Connection error', error);
-        reject(error);
+        this.isConnected = false;
+        const err = new Error('WebSocket connection failed');
+        this.callbacks.onError?.(err);
+        reject(err);
+      };
+
+      this.socket.onmessage = (event) => {
+        if (event.data instanceof ArrayBuffer) {
+          this.stats.bytesReceived += event.data.byteLength;
+          this.stats.framesReceived++;
+          this.callbacks.onData?.(event.data);
+        } else if (event.data instanceof Blob) {
+          event.data.arrayBuffer().then((buffer) => {
+            this.stats.bytesReceived += buffer.byteLength;
+            this.stats.framesReceived++;
+            this.callbacks.onData?.(buffer);
+          });
+        }
       };
 
       this.socket.onclose = () => {
         this.isConnected = false;
         console.log('QUIC Proxy: Connection closed');
+        this.callbacks.onDisconnected?.();
       };
     });
   }
@@ -290,6 +355,8 @@ export class QuicWebSocketProxy {
       throw new Error('Not connected');
     }
 
+    const startTime = performance.now();
+    
     // Send data in chunks
     const chunkSize = 64 * 1024; // 64KB chunks
     const chunks = Math.ceil(data.byteLength / chunkSize);
@@ -301,15 +368,43 @@ export class QuicWebSocketProxy {
 
       this.socket.send(chunk);
     }
+
+    const endTime = performance.now();
+    this.stats.bytesSent += data.byteLength;
+    this.stats.framesSent++;
+    this.stats.latency = endTime - startTime;
+  }
+
+  /**
+   * Get connection statistics
+   */
+  getConnectionStats(): QuicConnectionStats {
+    return { ...this.stats };
+  }
+
+  /**
+   * Check if connected
+   */
+  getIsConnected(): boolean {
+    return this.isConnected;
   }
 
   /**
    * Close connection
    */
-  close(): void {
+  async close(): Promise<void> {
     if (this.socket) {
       this.socket.close();
       this.isConnected = false;
+      this.stats = {
+        connectionTime: 0,
+        bytesSent: 0,
+        bytesReceived: 0,
+        latency: 0,
+        framesSent: 0,
+        framesReceived: 0,
+      };
+      this.callbacks.onDisconnected?.();
     }
   }
 }
@@ -318,7 +413,25 @@ export class QuicWebSocketProxy {
  * Check if WebTransport is supported
  */
 export function isWebTransportSupported(): boolean {
-  return typeof WebTransport !== 'undefined';
+  // Check if WebTransport is available
+  if (typeof window === 'undefined') return false;
+  
+  // Check if WebTransport class exists
+  if (typeof WebTransport === 'undefined') return false;
+  
+  // Check if we're in a secure context (HTTPS or localhost)
+  const isSecureContext = window.isSecureContext || 
+    window.location.protocol === 'https:' || 
+    window.location.hostname === 'localhost' || 
+    window.location.hostname === '127.0.0.1' ||
+    window.location.hostname === '[::1]';
+  
+  if (!isSecureContext) {
+    console.warn('WebTransport requires a secure context (HTTPS or localhost)');
+    return false;
+  }
+  
+  return true;
 }
 
 /**
@@ -326,11 +439,12 @@ export function isWebTransportSupported(): boolean {
  */
 export function createQuicClient(url: string): QuicClient | QuicWebSocketProxy {
   if (isWebTransportSupported()) {
+    console.log('QUIC: Using WebTransport client');
     return new QuicClient();
   } else {
     // Fallback to WebSocket proxy
+    console.log('QUIC: WebTransport not available, using WebSocket proxy');
     // In production, you'd have a WebSocket-to-QUIC proxy server
-    const wsUrl = url.replace('quic://', 'ws://').replace('https://', 'ws://');
     return new QuicWebSocketProxy();
   }
 }

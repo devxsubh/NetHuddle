@@ -90,6 +90,23 @@ export const VideoCall = ({ roomId, targetUserId, onEndCall, callerInfo, isIncom
 
   // Auto-start call if targetUserId is provided (outgoing call) and not incoming
   useEffect(() => {
+    // Only run in browser environment
+    if (typeof window === 'undefined') return;
+    
+    // Check if getUserMedia is available
+    const hasMediaSupport = 
+      navigator?.mediaDevices?.getUserMedia || 
+      (navigator as any)?.getUserMedia ||
+      (navigator as any)?.webkitGetUserMedia ||
+      (navigator as any)?.mozGetUserMedia;
+
+    if (!hasMediaSupport) {
+      console.error('getUserMedia is not supported in this browser');
+      setCallStatus('ended');
+      if (onEndCall) onEndCall();
+      return;
+    }
+
     if (targetUserId && !isIncoming && callStatus === 'idle' && !incomingOffer && socket?.connected) {
       setCallStatus('connecting');
       startCall().catch((error) => {

@@ -14,14 +14,14 @@ const roomSchema = mongoose.Schema(
 		},
 		createdBy: {
 			type: mongoose.SchemaTypes.ObjectId,
-			ref: 'User',
+			ref: 'users',
 			required: true
 		},
 		members: [
 			{
 				user: {
 					type: mongoose.SchemaTypes.ObjectId,
-					ref: 'User'
+					ref: 'users'
 				},
 				joinedAt: {
 					type: Date,
@@ -65,7 +65,16 @@ roomSchema.plugin(toJSON);
  */
 roomSchema.statics.createRoom = async function (roomData) {
 	const room = await this.create(roomData);
-	return room;
+	// Populate the room data before returning
+	const populatedRoom = await this.findById(room._id)
+		.populate('createdBy', 'userName firstName lastName avatar')
+		.populate('members.user', 'userName firstName lastName avatar');
+	
+	if (!populatedRoom) {
+		throw new Error('Failed to create room');
+	}
+	
+	return populatedRoom;
 };
 
 /**

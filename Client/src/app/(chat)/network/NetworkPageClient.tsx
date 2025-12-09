@@ -39,6 +39,54 @@ export const NetworkPageClient = () => {
     return () => clearInterval(interval);
   }, [updatePresence]);
 
+  // Listen to socket events for real-time network updates
+  useEffect(() => {
+    if (!socket) return;
+
+    // Request network users when socket connects
+    const handleConnect = () => {
+      socket.emit('network:getUsers');
+    };
+
+    // Listen for network users update
+    const handleNetworkUsers = (data: {
+      users: any[];
+      networkInfo: any;
+    }) => {
+      // Refetch to update the UI with latest data
+      refetch();
+    };
+
+    // Listen for user coming online
+    const handleUserOnline = (user: any) => {
+      // Refetch to get updated list
+      refetch();
+    };
+
+    // Listen for user going offline
+    const handleUserOffline = (user: any) => {
+      // Refetch to get updated list
+      refetch();
+    };
+
+    socket.on('connect', handleConnect);
+    socket.on('network:users', handleNetworkUsers);
+    socket.on('user:online', handleUserOnline);
+    socket.on('user:offline', handleUserOffline);
+
+    // Request network users if already connected
+    if (socket.connected) {
+      socket.emit('network:getUsers');
+    }
+
+    return () => {
+      socket.off('connect', handleConnect);
+      socket.off('network:users', handleNetworkUsers);
+      socket.off('user:online', handleUserOnline);
+      socket.off('user:offline', handleUserOffline);
+    };
+  }, [socket, refetch]);
+
   // Transform network users
   const networkUsers = useMemo(() => {
     if (!data?.success || !data.data?.users) return [];
@@ -142,10 +190,10 @@ export const NetworkPageClient = () => {
   }
 
   return (
-    <div className="h-full w-full flex flex-col">
+    <div className="w-full flex flex-col space-y-4">
       {/* Network Info */}
       {networkInfo && (
-        <div className="mb-4 p-4 bg-secondary/50 rounded-lg">
+        <div className="p-4 bg-secondary/50 rounded-lg border border-border">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-lg font-semibold text-text">Your Network</h3>
@@ -175,7 +223,7 @@ export const NetworkPageClient = () => {
       )}
 
       {/* Network Radar Visualization */}
-      <div className="flex-1 relative bg-secondary/30 rounded-lg overflow-hidden border border-secondary-dark">
+      <div className="relative bg-secondary-dark rounded-lg overflow-hidden border border-border min-h-[500px]">
         <NetworkRadar
           users={networkUsers}
           currentUserId={loggedInUser?.id || ""}

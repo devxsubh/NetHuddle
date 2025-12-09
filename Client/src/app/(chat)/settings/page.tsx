@@ -5,6 +5,7 @@ import { selectLoggedInUser } from "@/lib/client/slices/authSlice";
 import { useGetMeQuery, useUpdateMeMutation } from "@/lib/client/rtk-query/auth.api";
 import { useState } from "react";
 import toast from "react-hot-toast";
+import { PageWrapper } from "@/components/shared/PageWrapper";
 
 export default function SettingsPage() {
   const loggedInUser = useAppSelector(selectLoggedInUser);
@@ -33,11 +34,12 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="h-full w-full p-4 max-md:p-2 bg-background">
-      <div className="max-w-2xl mx-auto">
-        <h1 className="text-3xl font-bold text-text mb-6">Settings</h1>
-        
-        <div className="bg-secondary rounded-lg p-6 space-y-4">
+    <PageWrapper
+      title="Settings"
+      description="Manage your account settings and preferences"
+      maxWidth="2xl"
+    >
+      <div className="bg-secondary-dark rounded-lg p-6 border border-border space-y-4">
           <h2 className="text-xl font-semibold text-text mb-4">Profile Settings</h2>
           
           <div className="space-y-4">
@@ -91,8 +93,7 @@ export default function SettingsPage() {
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </PageWrapper>
   );
 }
 

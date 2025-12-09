@@ -42,6 +42,7 @@ export type CreateRoomRequest = {
   type?: RoomType;
   isPrivate?: boolean;
   maxMembers?: number;
+  memberIds?: string[]; // Array of user IDs to add to the room
 };
 
 export type UpdateRoomRequest = {
@@ -58,7 +59,7 @@ export const roomApi = createApi({
     (state) => state.authSlice.authToken,
     (state) => state.authSlice.refreshToken
   ),
-  tagTypes: ["Rooms", "Room"],
+  tagTypes: ["Rooms", "Room", "RoomMessages"],
   endpoints: (builder) => ({
     // Get all rooms
     getRooms: builder.query<
@@ -151,8 +152,38 @@ export const roomApi = createApi({
       }),
       invalidatesTags: ["Rooms"],
     }),
+
+    // Get room messages
+    getRoomMessages: builder.query<
+      { success: boolean; data: RoomMessage[]; count: number },
+      { roomId: string; limit?: number; skip?: number }
+    >({
+      query: ({ roomId, limit, skip }) => ({
+        url: `/${roomId}/messages`,
+        params: { limit, skip },
+      }),
+      providesTags: (result, error, { roomId }) => [
+        { type: "RoomMessages", id: roomId },
+      ],
+    }),
   }),
 });
+
+export type RoomMessage = {
+  id: string;
+  roomId: string;
+  from: {
+    userId: string;
+    userName: string;
+    firstName: string;
+    lastName: string;
+    avatar?: string;
+    avatarUrl?: string;
+  };
+  message: string;
+  type: string;
+  timestamp: string | Date;
+};
 
 export const {
   useGetRoomsQuery,
@@ -162,5 +193,6 @@ export const {
   useLeaveRoomMutation,
   useUpdateRoomMutation,
   useDeleteRoomMutation,
+  useGetRoomMessagesQuery,
 } = roomApi;
 

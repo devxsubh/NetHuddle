@@ -42,11 +42,46 @@ export const fileTransferApi = createApi({
       query: () => "/",
       providesTags: ["FileTransfers"],
     }),
+
+    // Get network files
+    getNetworkFiles: builder.query<
+      {
+        success: boolean;
+        data: {
+          files: Array<{
+            transferId: string;
+            fileName: string;
+            filePath: string;
+            fileSize: number;
+            fileType?: string;
+            uploadedBy: {
+              userId: string;
+              firstName: string;
+              lastName: string;
+              userName: string;
+              avatar?: string;
+              avatarUrl?: string;
+            };
+            uploadedAt: string;
+          }>;
+          networkInfo: {
+            networkSubnet: string;
+            yourIpAddress: string;
+            totalFiles: number;
+          };
+        };
+      },
+      void
+    >({
+      query: () => "/network",
+      providesTags: ["FileTransfers"],
+    }),
   }),
 });
 
 export const {
   useGetTransferStatusQuery,
   useGetMyTransfersQuery,
+  useGetNetworkFilesQuery,
 } = fileTransferApi;
 

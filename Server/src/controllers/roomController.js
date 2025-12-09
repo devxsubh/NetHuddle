@@ -7,8 +7,31 @@ import catchAsync from '~/utils/catchAsync';
  * Create a new room
  */
 export const createRoom = catchAsync(async (req, res) => {
-	const { name, description, type, isPrivate, maxMembers } = req.body;
+	const { name, description, type, isPrivate, maxMembers, memberIds } = req.body;
 	const userId = req.user._id || req.user.id;
+
+	// Start with creator as owner
+	const members = [
+		{
+			user: userId,
+			role: 'owner',
+			joinedAt: new Date(),
+		},
+	];
+
+	// Add selected members if provided
+	if (memberIds && Array.isArray(memberIds) && memberIds.length > 0) {
+		// Filter out the creator if they're in the list
+		const uniqueMemberIds = [...new Set(memberIds.filter(id => id.toString() !== userId.toString()))];
+		
+		uniqueMemberIds.forEach((memberId) => {
+			members.push({
+				user: memberId,
+				role: 'member',
+				joinedAt: new Date(),
+			});
+		});
+	}
 
 	const roomData = {
 		name,
@@ -16,14 +39,8 @@ export const createRoom = catchAsync(async (req, res) => {
 		createdBy: userId,
 		type: type || 'chat',
 		isPrivate: isPrivate || false,
-		maxMembers: maxMembers || 10,
-		members: [
-			{
-				user: userId,
-				role: 'owner',
-				joinedAt: new Date(),
-			},
-		],
+		maxMembers: maxMembers || Math.max(10, members.length),
+		members,
 	};
 
 	const room = await Room.createRoom(roomData);
@@ -96,9 +113,11 @@ export const joinRoom = catchAsync(async (req, res) => {
 	}
 
 	if (room.isMember(userId)) {
+		// User is already a member, return the room
+		const updatedRoom = await Room.getRoomById(roomId);
 		return res.json({
 			success: true,
-			data: room,
+			data: updatedRoom,
 			message: 'Already a member of this room',
 		});
 	}
@@ -206,6 +225,63 @@ export const deleteRoom = catchAsync(async (req, res) => {
 	});
 });
 
+/**
+ * Get room messages
+ */
+export const getRoomMessages = catchAsync(async (req, res) => {
+	const { roomId } = req.params;
+	const userId = req.user._id || req.user.id;
+	const { limit = 50, skip = 0 } = req.query;
+
+	const RoomMessage = (await import('~/models/roomMessageModel')).default;
+
+	const room = await Room.getRoomById(roomId);
+
+	if (!room) {
+		throw new APIError('Room not found', httpStatus.NOT_FOUND);
+	}
+
+	if (!room.isActive) {
+		throw new APIError('Room is not active', httpStatus.BAD_REQUEST);
+	}
+
+	// Check if user is a member
+	if (!room.isMember(userId)) {
+		throw new APIError('You are not a member of this room', httpStatus.FORBIDDEN);
+	}
+
+	const messages = await RoomMessage.getRoomMessages(
+		roomId,
+		parseInt(limit),
+		parseInt(skip)
+	);
+
+	// Format messages for response
+	const formattedMessages = messages.reverse().map((msg) => ({
+		id: msg._id.toString(),
+		roomId: msg.room.toString(),
+		from: {
+			userId: msg.sender._id.toString(),
+			userName: msg.sender.userName,
+			firstName: msg.sender.firstName,
+			lastName: msg.sender.lastName,
+			avatar: msg.sender.avatar,
+			avatarUrl: msg.sender.avatar ? 
+				`${process.env.BASE_URL || 'http://localhost:5000'}/images/${msg.sender.avatar}` : 
+				null
+		},
+		message: msg.message,
+		type: msg.type,
+		timestamp: msg.createdAt
+	}));
+
+	return res.json({
+		success: true,
+		data: formattedMessages,
+		count: formattedMessages.length
+	});
+});
+
 export default {
 	createRoom,
 	getRooms,
@@ -214,5 +290,6 @@ export default {
 	leaveRoom,
 	updateRoom,
 	deleteRoom,
+	getRoomMessages,
 };
 

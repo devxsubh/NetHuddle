@@ -5,7 +5,10 @@ import cors from 'cors';
  * Handles all CORS scenarios including preflight requests
  */
 const corsOptions = {
-	origin: true, // Allow all origins
+	origin: (origin, callback) => {
+		// Allow all origins - always return true
+		callback(null, true);
+	},
 	credentials: true,
 	methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
 	allowedHeaders: [

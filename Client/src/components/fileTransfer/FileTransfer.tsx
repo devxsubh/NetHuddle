@@ -54,20 +54,33 @@ export const FileTransfer = ({ recipientId, roomId }: FileTransferProps) => {
     };
 
     const handleFileTransferCompleted = (data: any) => {
-      setReceivingFiles((prev) => {
-        const newMap = new Map(prev);
-        const existing = newMap.get(data.transferId);
-        if (existing) {
-          newMap.set(data.transferId, {
-            ...existing,
-            progress: 100,
-            status: 'completed',
-          });
+      // Handle network shares or specific recipient/room
+      if (data.isNetworkShare || data.recipientId === recipientId || data.roomId === roomId) {
+        setReceivingFiles((prev) => {
+          const newMap = new Map(prev);
+          const existing = newMap.get(data.transferId);
+          if (existing) {
+            newMap.set(data.transferId, {
+              ...existing,
+              progress: 100,
+              status: 'completed',
+            });
+          } else {
+            // New file received
+            newMap.set(data.transferId, {
+              fileName: data.fileName,
+              fileSize: data.fileSize,
+              progress: 100,
+              status: 'completed',
+            });
+          }
+          return newMap;
+        });
+        if (!data.isNetworkShare) {
+          toast.success(`File received: ${data.fileName}`);
         }
-        return newMap;
-      });
-      toast.success(`File received: ${data.fileName}`);
-      refetch();
+        refetch();
+      }
     };
 
     const handleFileTransferError = (data: any) => {
@@ -116,11 +129,12 @@ export const FileTransfer = ({ recipientId, roomId }: FileTransferProps) => {
       });
 
       try {
+        // If no recipientId or roomId, share to network
         await transferFileViaWebSocket({
           file,
           socket,
-          recipientId,
-          roomId,
+          recipientId: recipientId || undefined,
+          roomId: roomId || undefined,
           onProgress: (progress) => {
             setUploadingFiles((prev) => {
               const newMap = new Map(prev);

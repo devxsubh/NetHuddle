@@ -5,6 +5,7 @@ import path from 'path';
 import config from './config';
 import User from '~/models/userModel';
 import NetworkSession from '~/models/networkSessionModel';
+import NetworkFileShare from '~/models/networkFileShareModel';
 import { getNetworkSubnet } from '~/utils/networkUtils';
 import logger from './logger';
 import { setSocketInstance } from '~/services/socketService';
@@ -15,14 +16,10 @@ import metricsService from '~/services/metricsService';
  */
 export function initializeSocket(server) {
 	// Socket.IO CORS configuration - must match Express CORS
-	const socketCorsOrigins =
-		config.NODE_ENV === 'development'
-			? true // Allow all origins in development
-			: [config.FRONTEND_URL, 'http://localhost:3000', 'http://localhost:777', 'http://localhost:5000'].filter(Boolean);
-
+	// Allow all origins to match Express CORS configuration
 	const io = new Server(server, {
 		cors: {
-			origin: socketCorsOrigins,
+			origin: true, // Allow all origins
 			methods: ['GET', 'POST'],
 			credentials: true,
 			allowedHeaders: ['Authorization', 'Content-Type']
@@ -64,10 +61,36 @@ export function initializeSocket(server) {
 			socket.user = user;
 			socket.userId = user._id || user.id;
 
-			// Get client IP and network info
-			const clientIp = socket.handshake.address || socket.request.connection.remoteAddress;
+			// Get client IP and network info - use same logic as HTTP middleware
+			// Check for forwarded IP from proxy/load balancer
+			const forwarded = socket.handshake.headers['x-forwarded-for'];
+			let clientIp;
+			if (forwarded) {
+				const ips = forwarded.split(',');
+				clientIp = ips[0].trim();
+			} else {
+				// Check for real IP header
+				const realIp = socket.handshake.headers['x-real-ip'];
+				if (realIp) {
+					clientIp = realIp.trim();
+				} else {
+					// Fallback to socket address
+					clientIp = socket.handshake.address || 
+						socket.request.connection?.remoteAddress || 
+						socket.request.socket?.remoteAddress ||
+						'127.0.0.1';
+				}
+			}
+			
+			// Remove IPv6 prefix if present (::ffff:192.168.1.1 -> 192.168.1.1)
+			if (clientIp && clientIp.startsWith('::ffff:')) {
+				clientIp = clientIp.replace('::ffff:', '');
+			}
+			
 			const networkSubnet = getNetworkSubnet(clientIp);
 			const userAgent = socket.handshake.headers['user-agent'];
+			
+			logger.info(`Socket connection: User ${user.userName}, IP: ${clientIp}, Subnet: ${networkSubnet}`);
 
 			// Register network session
 			await NetworkSession.createOrUpdateSession(user.id, clientIp, networkSubnet, userAgent);
@@ -356,6 +379,73 @@ export function initializeSocket(server) {
 			} catch (error) {
 				logger.error(`Error leaving room: ${error.message}`);
 				socket.emit('error', { message: 'Failed to leave room' });
+			}
+		});
+
+		// Send message to room
+		socket.on('room:message', async (data) => {
+			const startTime = Date.now();
+			try {
+				const { roomId, message, type = 'text' } = data;
+
+				if (!roomId || !message) {
+					return socket.emit('error', { message: 'Room ID and message are required' });
+				}
+
+				// Verify user is a member of the room
+				const Room = (await import('~/models/roomModel')).default;
+				const RoomMessage = (await import('~/models/roomMessageModel')).default;
+				const room = await Room.getRoomById(roomId);
+
+				if (!room) {
+					return socket.emit('error', { message: 'Room not found' });
+				}
+
+				if (!room.isActive) {
+					return socket.emit('error', { message: 'Room is not active' });
+				}
+
+				if (!room.isMember(socket.userId)) {
+					return socket.emit('error', { message: 'You are not a member of this room' });
+				}
+
+				// Save message to database
+				const savedMessage = await RoomMessage.createRoomMessage(roomId, socket.userId, message, type);
+
+				const roomName = `room:${roomId}`;
+
+				// Broadcast message to all members in the room (including sender)
+				io.to(roomName).emit('room:message', {
+					roomId,
+					messageId: savedMessage._id.toString(),
+					from: {
+						userId: socket.userId,
+						userName: user.userName,
+						firstName: user.firstName,
+						lastName: user.lastName,
+						avatar: user.avatar,
+						avatarUrl: user.avatarUrl
+					},
+					message,
+					type,
+					timestamp: savedMessage.createdAt
+				});
+
+				// Confirm to sender
+				socket.emit('room:message:sent', {
+					success: true,
+					roomId,
+					messageId: savedMessage._id.toString(),
+					timestamp: savedMessage.createdAt
+				});
+
+				const duration = (Date.now() - startTime) / 1000;
+				metricsService.recordWebSocketMessage('room:message', duration);
+
+				logger.info(`User ${user.userName} sent message to room ${roomId}`);
+			} catch (error) {
+				logger.error(`Error sending room message: ${error.message}`);
+				socket.emit('error', { message: 'Failed to send message to room' });
 			}
 		});
 
@@ -682,6 +772,14 @@ export function initializeSocket(server) {
 						progress,
 						timestamp: new Date()
 					});
+				} else {
+					// Network-wide file share - broadcast to network room
+					const networkRoom = socket.networkRoom;
+					socket.to(networkRoom).emit('file:transfer:progress', {
+						transferId,
+						progress,
+						timestamp: new Date()
+					});
 				}
 
 				// Check if all chunks received
@@ -708,36 +806,50 @@ export function initializeSocket(server) {
 					// Record metrics
 					metricsService.recordFileTransfer('completed', fileSize, transferDuration);
 
+					// Save to network file shares if no specific recipient/room
+					if (!recipientId && !roomId) {
+						try {
+							await NetworkFileShare.createFileShare(
+								socket.userId,
+								socket.networkSubnet,
+								transferId,
+								fileName,
+								fileUrl,
+								fileSize,
+								fileType
+							);
+							logger.info(`File shared to network: ${fileName} by ${user.userName} on ${socket.networkSubnet}`);
+						} catch (error) {
+							logger.error(`Error saving network file share: ${error.message}`);
+						}
+					}
+
+					const fileData = {
+						from: {
+							userId: socket.userId,
+							userName: user.userName,
+							avatar: user.avatar,
+							avatarUrl: user.avatarUrl
+						},
+						transferId,
+						fileName,
+						filePath: fileUrl,
+						fileSize,
+						timestamp: new Date()
+					};
+
 					if (recipientId) {
-						io.to(`user:${recipientId}`).emit('file:transfer:completed', {
-							from: {
-								userId: socket.userId,
-								userName: user.userName,
-								avatar: user.avatar,
-								avatarUrl: user.avatarUrl
-							},
-							transferId,
-							fileName,
-							filePath: fileUrl,
-							fileSize,
-							timestamp: new Date()
-						});
+						io.to(`user:${recipientId}`).emit('file:transfer:completed', fileData);
 					} else if (roomId) {
+						fileData.roomId = roomId;
 						const roomName = `room:${roomId}`;
-						socket.to(roomName).emit('file:transfer:completed', {
-							from: {
-								userId: socket.userId,
-								userName: user.userName,
-								avatar: user.avatar,
-								avatarUrl: user.avatarUrl
-							},
-							transferId,
-							fileName,
-							filePath: fileUrl,
-							fileSize,
-							roomId,
-							timestamp: new Date()
-						});
+						socket.to(roomName).emit('file:transfer:completed', fileData);
+					} else {
+						// Network-wide file share - broadcast to network room
+						fileData.isNetworkShare = true;
+						const networkRoom = socket.networkRoom;
+						socket.to(networkRoom).emit('file:transfer:completed', fileData);
+						logger.info(`File broadcasted to network room ${networkRoom}: ${fileName}`);
 					}
 
 					// Confirm to sender

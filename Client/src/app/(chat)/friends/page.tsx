@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { fetchUserFriends, fetchUserFriendRequest, fetchUserInfo } from "@/interfaces/server.types";
 import { FriendsPageClient } from "./FriendsPageClient";
+import { PageWrapper } from "@/components/shared/PageWrapper";
 
 export default async function FriendsPage() {
   const cookiesStore = await cookies();
@@ -14,16 +15,19 @@ export default async function FriendsPage() {
   ]);
 
   return (
-    <div className="h-full w-full p-4 max-md:p-2 bg-background">
-      <div className="max-w-4xl mx-auto">
-        <h1 className="text-3xl font-bold text-text mb-6">Friends</h1>
+    <PageWrapper
+      title="Friends"
+      description="Manage your friends and friend requests"
+      maxWidth="4xl"
+    >
+      <div className="bg-secondary-dark rounded-lg p-6 border border-border">
         <FriendsPageClient 
           friends={friends || []} 
           friendRequests={friendRequests || []}
           loggedInUserId={loggedInUserId}
         />
       </div>
-    </div>
+    </PageWrapper>
   );
 }
 

@@ -1,6 +1,8 @@
 import { FileTransfer } from "@/components/fileTransfer/FileTransfer";
+import { NetworkFiles } from "@/components/network/NetworkFiles";
 import { cookies } from "next/headers";
 import { fetchUserInfo } from "@/interfaces/server.types";
+import { PageWrapper } from "@/components/shared/PageWrapper";
 
 export default async function FileTransferPage() {
   const cookiesStore = await cookies();
@@ -10,12 +12,22 @@ export default async function FileTransferPage() {
   const user = await fetchUserInfo({ loggedInUserId, token });
 
   return (
-    <div className="h-full w-full p-4 max-md:p-2 bg-background">
-      <div className="max-w-4xl mx-auto">
-        <h1 className="text-3xl font-bold text-text mb-6">File Transfer</h1>
+    <PageWrapper
+      title="File Transfer"
+      description="Share and download files with users on your network"
+      maxWidth="4xl"
+    >
+      {/* Network Files Section */}
+      <div className="bg-secondary-dark rounded-lg p-6 border border-border">
+        <NetworkFiles />
+      </div>
+      
+      {/* File Transfer Component */}
+      <div className="bg-secondary-dark rounded-lg p-6 border border-border">
+        <h2 className="text-xl font-semibold text-text mb-4">Send Files</h2>
         <FileTransfer />
       </div>
-    </div>
+    </PageWrapper>
   );
 }
 

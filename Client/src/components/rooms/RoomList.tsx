@@ -9,10 +9,13 @@ import { CircleLoading } from "../shared/CircleLoading";
 import { CreateRoomForm } from "./CreateRoomForm";
 import { RoomCard } from "./RoomCard";
 
+import { RoomChatModal } from "./RoomChatModal";
+
 export const RoomList = () => {
   const loggedInUser = useAppSelector(selectLoggedInUser);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [roomTypeFilter, setRoomTypeFilter] = useState<'chat' | 'video' | 'streaming' | 'all'>('all');
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   
   const { data, isLoading, error, refetch } = useGetRoomsQuery({
     type: roomTypeFilter === 'all' ? undefined : roomTypeFilter,
@@ -103,6 +106,7 @@ export const RoomList = () => {
                 isMember={true}
                 onJoin={handleJoinRoom}
                 onLeave={handleLeaveRoom}
+                onOpen={setSelectedRoomId}
               />
             ))}
           </div>
@@ -143,6 +147,15 @@ export const RoomList = () => {
             setShowCreateForm(false);
             refetch();
           }}
+        />
+      )}
+
+      {/* Room Chat Modal */}
+      {selectedRoomId && (
+        <RoomChatModal
+          roomId={selectedRoomId}
+          isOpen={!!selectedRoomId}
+          onClose={() => setSelectedRoomId(null)}
         />
       )}
     </div>

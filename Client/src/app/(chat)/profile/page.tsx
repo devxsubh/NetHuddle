@@ -109,13 +109,15 @@ export default function ProfilePage() {
   };
 
   return (
-    <div className="h-full w-full p-4 max-md:p-2 bg-background overflow-y-auto">
-      <div className="max-w-4xl mx-auto">
+    <div className="h-full w-full overflow-y-auto bg-background">
+      <div className="max-w-4xl mx-auto p-4 max-md:p-2 min-h-full">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <h1 className="text-3xl font-bold text-text">My Profile</h1>
-          <div className="flex items-center gap-4">
-            <ToggleThemeButton />
+        <div className="sticky top-0 bg-background/95 backdrop-blur-sm z-10 pb-4 mb-8 border-b border-border">
+          <div className="flex items-center justify-between">
+            <h1 className="text-3xl font-bold text-text">My Profile</h1>
+            <div className="flex items-center gap-4">
+              <ToggleThemeButton />
+            </div>
           </div>
         </div>
 

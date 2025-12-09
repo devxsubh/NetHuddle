@@ -117,18 +117,126 @@ export const useWebRTC = (options: UseWebRTCOptions): UseWebRTCReturn => {
    */
   const getUserMedia = useCallback(async (constraints: MediaStreamConstraints = mediaConstraints) => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      setLocalStream(stream);
-      localStreamRef.current = stream;
-
-      // Add tracks to peer connection
-      if (peerConnectionRef.current) {
-        stream.getTracks().forEach((track) => {
-          peerConnectionRef.current?.addTrack(track, stream);
-        });
+      // Check if running in browser environment
+      if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+        throw new Error('getUserMedia is only available in browser environment');
       }
 
-      return stream;
+      // Check secure context
+      const isSecureContext = window.isSecureContext || 
+        window.location.protocol === 'https:' || 
+        window.location.hostname === 'localhost' || 
+        window.location.hostname === '127.0.0.1' ||
+        window.location.hostname === '[::1]';
+
+      // Log diagnostic information
+      console.log('WebRTC getUserMedia check:', {
+        hasNavigator: !!navigator,
+        hasMediaDevices: !!navigator.mediaDevices,
+        hasGetUserMedia: !!(navigator.mediaDevices?.getUserMedia),
+        isSecureContext: window.isSecureContext,
+        protocol: window.location.protocol,
+        hostname: window.location.hostname,
+        fullUrl: window.location.href
+      });
+
+      // Check if mediaDevices API is available
+      if (navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function') {
+        // Modern API - preferred
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia(constraints);
+          setLocalStream(stream);
+          localStreamRef.current = stream;
+
+          // Add tracks to peer connection
+          if (peerConnectionRef.current) {
+            stream.getTracks().forEach((track) => {
+              peerConnectionRef.current?.addTrack(track, stream);
+            });
+          }
+
+          return stream;
+        } catch (error: any) {
+          // Handle specific error types
+          if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+            throw new Error('Camera/microphone access denied. Please allow permissions in your browser settings.');
+          } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+            throw new Error('No camera or microphone found. Please connect a device.');
+          } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+            throw new Error('Camera/microphone is already in use by another application.');
+          } else if (error.name === 'SecurityError' || error.message?.includes('secure context')) {
+            throw new Error(
+              `getUserMedia requires a secure context (HTTPS). ` +
+              `You are accessing via ${window.location.protocol}//${window.location.hostname}. ` +
+              `Please use HTTPS or access via localhost/127.0.0.1.`
+            );
+          } else if (error.name === 'TypeError' && error.message?.includes('getUserMedia')) {
+            // This might happen in insecure contexts where the API exists but is blocked
+            throw new Error(
+              `getUserMedia is blocked due to insecure context. ` +
+              `Please access via HTTPS or localhost. Current URL: ${window.location.href}`
+            );
+          }
+          // Re-throw with original error for debugging
+          console.error('getUserMedia error:', error);
+          throw error;
+        }
+      }
+
+      // Try legacy API fallback
+      const legacyGetUserMedia = 
+        (navigator as any).getUserMedia ||
+        (navigator as any).webkitGetUserMedia ||
+        (navigator as any).mozGetUserMedia ||
+        (navigator as any).msGetUserMedia;
+
+      if (legacyGetUserMedia) {
+        // Use legacy API
+        const stream = await new Promise<MediaStream>((resolve, reject) => {
+          legacyGetUserMedia.call(navigator, constraints, resolve, reject);
+        });
+
+        setLocalStream(stream);
+        localStreamRef.current = stream;
+
+        // Add tracks to peer connection
+        if (peerConnectionRef.current) {
+          stream.getTracks().forEach((track) => {
+            peerConnectionRef.current?.addTrack(track, stream);
+          });
+        }
+
+        return stream;
+      }
+
+      // No getUserMedia support found
+      // Check if it's a secure context issue first
+      if (!isSecureContext) {
+        const currentUrl = `${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}`;
+        throw new Error(
+          `getUserMedia requires a secure context (HTTPS). ` +
+          `You are accessing via ${currentUrl}. ` +
+          `Solutions:\n` +
+          `1. Use HTTPS: https://${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}\n` +
+          `2. Use localhost: http://localhost${window.location.port ? ':' + window.location.port : ''}\n` +
+          `3. For development, you can map the IP to localhost in /etc/hosts`
+        );
+      }
+      
+      // If we have mediaDevices but no getUserMedia, it's likely a browser compatibility issue
+      if (navigator.mediaDevices && !navigator.mediaDevices.getUserMedia) {
+        throw new Error(
+          'getUserMedia method is not available on navigator.mediaDevices. ' +
+          'This may be due to browser restrictions or the page not being in a secure context. ' +
+          'Please try accessing via HTTPS or localhost.'
+        );
+      }
+      
+      // Final fallback - no support at all
+      throw new Error(
+        'getUserMedia is not supported in this browser. ' +
+        'Please update to a modern browser (Chrome, Firefox, Safari, Edge) or check if your browser has camera/microphone support enabled.'
+      );
     } catch (error) {
       console.error('Error getting user media:', error);
       throw error;
@@ -140,6 +248,11 @@ export const useWebRTC = (options: UseWebRTCOptions): UseWebRTCReturn => {
    */
   const getDisplayMedia = useCallback(async () => {
     try {
+      // Check if getDisplayMedia is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+        throw new Error('Screen sharing is not supported in this browser.');
+      }
+
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: screenShareConstraints.video as MediaTrackConstraints,
         audio: false,

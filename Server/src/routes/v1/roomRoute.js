@@ -19,6 +19,9 @@ router.get('/', catchAsync(roomController.getRooms));
 // Get room by ID
 router.get('/:roomId', validate(roomValidation.getRoom), catchAsync(roomController.getRoom));
 
+// Get room messages
+router.get('/:roomId/messages', validate(roomValidation.getRoom), catchAsync(roomController.getRoomMessages));
+
 // Join room
 router.post('/:roomId/join', validate(roomValidation.joinRoom), catchAsync(roomController.joinRoom));
 

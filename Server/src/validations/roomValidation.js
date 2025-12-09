@@ -8,6 +8,7 @@ const createRoom = {
 		type: Joi.string().valid('chat', 'video', 'streaming').optional(),
 		isPrivate: Joi.boolean().optional(),
 		maxMembers: Joi.number().integer().min(2).max(100).optional(),
+		memberIds: Joi.array().items(Joi.string().custom(mongoId)).optional(),
 	}),
 };
 

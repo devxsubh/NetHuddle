@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { fetchUserInfo } from "@/interfaces/server.types";
 import { HomePageClient } from "./HomePageClient";
+import { PageWrapper } from "@/components/shared/PageWrapper";
 
 export default async function HomePage() {
   const cookiesStore = await cookies();
@@ -10,11 +11,12 @@ export default async function HomePage() {
   const user = await fetchUserInfo({ loggedInUserId, token });
 
   return (
-    <div className="h-full w-full p-4 max-md:p-2 bg-background">
-      <div className="max-w-6xl mx-auto">
-        <h1 className="text-3xl font-bold text-text mb-6">Welcome back, {user?.firstName || user?.userName || "User"}!</h1>
-        <HomePageClient user={user} />
-      </div>
-    </div>
+    <PageWrapper
+      title={`Welcome back, ${user?.firstName || user?.userName || "User"}!`}
+      description="Your dashboard overview"
+      maxWidth="6xl"
+    >
+      <HomePageClient user={user} />
+    </PageWrapper>
   );
 }

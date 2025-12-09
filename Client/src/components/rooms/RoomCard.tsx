@@ -10,9 +10,10 @@ interface RoomCardProps {
   isMember: boolean;
   onJoin: (roomId: string) => void;
   onLeave: (roomId: string) => void;
+  onOpen?: (roomId: string) => void;
 }
 
-export const RoomCard = ({ room, isMember, onJoin, onLeave }: RoomCardProps) => {
+export const RoomCard = ({ room, isMember, onJoin, onLeave, onOpen }: RoomCardProps) => {
   const getRoomTypeIcon = (type: string) => {
     switch (type) {
       case 'video':
@@ -81,12 +82,22 @@ export const RoomCard = ({ room, isMember, onJoin, onLeave }: RoomCardProps) => 
         {/* Actions */}
         <div className="flex flex-col gap-y-2">
           {isMember ? (
-            <button
-              onClick={() => onLeave(room.id)}
-              className="px-3 py-1 text-sm bg-red-500 hover:bg-red-600 text-white rounded transition-colors"
-            >
-              Leave
-            </button>
+            <>
+              {onOpen && (
+                <button
+                  onClick={() => onOpen(room.id)}
+                  className="px-3 py-1 text-sm bg-primary hover:bg-primary-dark text-white rounded transition-colors"
+                >
+                  Open
+                </button>
+              )}
+              <button
+                onClick={() => onLeave(room.id)}
+                className="px-3 py-1 text-sm bg-red-500 hover:bg-red-600 text-white rounded transition-colors"
+              >
+                Leave
+              </button>
+            </>
           ) : (
             <button
               onClick={() => onJoin(room.id)}

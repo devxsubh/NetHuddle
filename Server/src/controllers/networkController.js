@@ -22,6 +22,10 @@ export const getNetworkUsers = async (req, res) => {
 		throw new APIError('Invalid user ID', httpStatus.BAD_REQUEST);
 	}
 
+	// Ensure current user's session is created/updated
+	const userAgent = req.headers['user-agent'];
+	await NetworkSession.createOrUpdateSession(currentUserId, clientIp, networkSubnet, userAgent);
+
 	// Get all active sessions in the same network (excluding current user)
 	const sessions = await NetworkSession.getActiveSessionsByNetwork(networkSubnet, currentUserId);
 

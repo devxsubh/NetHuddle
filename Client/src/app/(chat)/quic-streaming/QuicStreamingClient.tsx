@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useGetQuicServerInfoQuery, useCreateStreamingSessionMutation } from "@/lib/client/rtk-query/quic.api";
-import { QuicClient, QuicConnectionStats } from "@/lib/shared/utils/quicClient";
+import { QuicClient, QuicConnectionStats, isWebTransportSupported, createQuicClient, QuicWebSocketProxy } from "@/lib/shared/utils/quicClient";
 import { createFrameCaptureLoop, getUserMediaStream, getVideoDevices } from "@/lib/shared/utils/videoEncoder";
 import { VideoStreamDisplay } from "@/components/quic/VideoStreamDisplay";
 import { QuicMetrics } from "@/components/quic/QuicMetrics";
@@ -38,7 +38,7 @@ export const QuicStreamingClient = () => {
 
   // Refs
   const localVideoRef = useRef<HTMLVideoElement>(null);
-  const quicClientRef = useRef<QuicClient | null>(null);
+  const quicClientRef = useRef<QuicClient | QuicWebSocketProxy | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const stopCaptureRef = useRef<(() => void) | null>(null);
   const connectionStartTimeRef = useRef<number>(0);
@@ -77,8 +77,11 @@ export const QuicStreamingClient = () => {
   useEffect(() => {
     if (connectionStatus === 'connected' && quicClientRef.current) {
       statsIntervalRef.current = setInterval(() => {
-        if (quicClientRef.current) {
-          setStats(quicClientRef.current.getConnectionStats());
+        const client = quicClientRef.current;
+        if (client && client.getIsConnected && client.getIsConnected()) {
+          if (client.getConnectionStats) {
+            setStats(client.getConnectionStats());
+          }
         }
       }, 1000);
     } else {
@@ -98,6 +101,21 @@ export const QuicStreamingClient = () => {
   // Start camera
   const handleStartCamera = async () => {
     try {
+      // Check secure context for camera access
+      if (typeof window !== 'undefined') {
+        const isSecureContext = window.isSecureContext || 
+          window.location.protocol === 'https:' || 
+          window.location.hostname === 'localhost' || 
+          window.location.hostname === '127.0.0.1';
+        
+        if (!isSecureContext) {
+          const errorMsg = `Camera access requires HTTPS. You are accessing via ${window.location.protocol}//${window.location.hostname}. Please use HTTPS or access via localhost/127.0.0.1.`;
+          setError(errorMsg);
+          toast.error(errorMsg);
+          return;
+        }
+      }
+
       const stream = await getUserMediaStream(selectedDeviceId);
       streamRef.current = stream;
 
@@ -110,8 +128,21 @@ export const QuicStreamingClient = () => {
       toast.success("Camera started");
     } catch (error: any) {
       console.error("Error starting camera:", error);
-      setError(error.message || "Failed to access camera");
-      toast.error("Failed to access camera. Please check permissions.");
+      let errorMessage = error.message || "Failed to access camera";
+      
+      // Provide helpful error messages
+      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+        errorMessage = 'Camera access denied. Please allow camera permissions in your browser settings.';
+      } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+        errorMessage = 'No camera found. Please connect a camera device.';
+      } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+        errorMessage = 'Camera is already in use by another application.';
+      } else if (error.message?.includes('secure context') || error.message?.includes('HTTPS')) {
+        errorMessage = `Camera access requires HTTPS. Please use HTTPS or access via localhost.`;
+      }
+      
+      setError(errorMessage);
+      toast.error(errorMessage);
     }
   };
 
@@ -141,6 +172,24 @@ export const QuicStreamingClient = () => {
       return;
     }
 
+    // Check WebTransport support
+    if (!isWebTransportSupported()) {
+      const isSecureContext = typeof window !== 'undefined' && 
+        (window.isSecureContext || 
+         window.location.protocol === 'https:' || 
+         window.location.hostname === 'localhost' || 
+         window.location.hostname === '127.0.0.1');
+      
+      const errorMsg = isSecureContext
+        ? 'WebTransport is not supported in this browser. Please use Chrome 97+, Edge 97+, or a browser with WebTransport support.'
+        : `WebTransport requires HTTPS. You are accessing via ${window.location.protocol}//${window.location.hostname}. Please use HTTPS or access via localhost/127.0.0.1.`;
+      
+      setConnectionStatus('error');
+      setError(errorMsg);
+      toast.error(errorMsg);
+      return;
+    }
+
     try {
       setConnectionStatus('connecting');
       setError(null);
@@ -149,16 +198,19 @@ export const QuicStreamingClient = () => {
       const session = await createSession({}).unwrap();
       setSessionToken(session.sessionToken);
 
-      // Create QUIC client
-      const client = new QuicClient();
-      quicClientRef.current = client;
-
-      // Set up callbacks
+      // Create QUIC client using factory function
+      const quicUrl = session.quicServer.webTransportUrl;
+      const client = createQuicClient(quicUrl);
+      
+      // Set up callbacks (both QuicClient and QuicWebSocketProxy support the same interface)
       client.setCallbacks({
         onConnected: () => {
           setConnectionStatus('connected');
           connectionStartTimeRef.current = Date.now();
-          toast.success("Connected to QUIC server");
+          const isWebSocket = !(client instanceof QuicClient);
+          toast.success(isWebSocket 
+            ? "Connected via WebSocket proxy (WebTransport not available)" 
+            : "Connected to QUIC server");
         },
         onDisconnected: () => {
           setConnectionStatus('disconnected');
@@ -174,20 +226,44 @@ export const QuicStreamingClient = () => {
         },
       });
 
-      // Connect
-      await client.connect(session.quicServer.webTransportUrl, session.sessionToken);
+      // Store client reference
+      if (client instanceof QuicClient) {
+        quicClientRef.current = client;
+      }
+
+      // Connect - handle both QuicClient and QuicWebSocketProxy
+      if (client instanceof QuicClient) {
+        await client.connect(quicUrl, session.sessionToken);
+      } else {
+        // For WebSocket proxy, convert QUIC URL to WebSocket URL
+        const wsClient = client as QuicWebSocketProxy;
+        const wsUrl = quicUrl.replace('quic://', 'ws://').replace('https://', 'wss://');
+        await wsClient.connect(wsUrl, session.sessionToken);
+      }
     } catch (error: any) {
       console.error("Error connecting to QUIC server:", error);
       setConnectionStatus('error');
-      setError(error.message || "Failed to connect to QUIC server");
-      toast.error("Failed to connect to QUIC server");
+      const errorMessage = error.message || "Failed to connect to QUIC server";
+      setError(errorMessage);
+      
+      // Provide helpful error message
+      if (errorMessage.includes('WebTransport') || errorMessage.includes('not defined')) {
+        const helpfulMsg = `WebTransport is not available. ${typeof window !== 'undefined' && window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' ? 'Please use HTTPS or localhost.' : 'Please use a browser that supports WebTransport (Chrome 97+, Edge 97+).'}`;
+        toast.error(helpfulMsg);
+        setError(helpfulMsg);
+      } else {
+        toast.error(errorMessage);
+      }
     }
   };
 
   // Disconnect from QUIC server
   const handleDisconnect = async () => {
-    if (quicClientRef.current) {
-      await quicClientRef.current.close();
+    // Store reference before clearing
+    const client = quicClientRef.current;
+    
+    if (client) {
+      await client.close();
       quicClientRef.current = null;
     }
 
@@ -209,15 +285,16 @@ export const QuicStreamingClient = () => {
       return;
     }
 
-    if (quicClientRef.current.getIsConnected()) {
+    const client = quicClientRef.current;
+    if (client && client.getIsConnected()) {
       const stopCapture = createFrameCaptureLoop(localVideoRef.current, {
         fps: 30,
         format: 'webp',
         quality: 0.8,
         onFrame: async (frame) => {
-          if (quicClientRef.current && quicClientRef.current.getIsConnected()) {
+          if (client && client.getIsConnected()) {
             try {
-              await quicClientRef.current.sendStream(frame);
+              await client.sendStream(frame);
             } catch (error) {
               console.error("Error sending frame:", error);
             }
@@ -232,6 +309,8 @@ export const QuicStreamingClient = () => {
       stopCaptureRef.current = stopCapture;
       setIsStreaming(true);
       toast.success("Streaming started");
+    } else {
+      toast.error("Not connected to server");
     }
   };
 
@@ -274,22 +353,76 @@ export const QuicStreamingClient = () => {
     );
   }
 
+  // Check WebTransport and HTTPS support
+  const webTransportSupported = isWebTransportSupported();
+  const isSecureContext = typeof window !== 'undefined' && 
+    (window.isSecureContext || 
+     window.location.protocol === 'https:' || 
+     window.location.hostname === 'localhost' || 
+     window.location.hostname === '127.0.0.1');
+
   return (
-    <div className="h-full w-full p-4 md:p-6 bg-background overflow-y-auto">
-      <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-text">QUIC Video Streaming</h1>
-            <p className="text-secondary-darker mt-1">Low-latency video streaming using QUIC protocol</p>
+    <div className="w-full space-y-6">
+      {/* WebTransport Support Warning */}
+      {(!webTransportSupported || !isSecureContext) && (
+        <div className={`p-4 rounded-lg border-2 ${
+          !isSecureContext 
+            ? 'bg-yellow-500/20 border-yellow-500' 
+            : 'bg-orange-500/20 border-orange-500'
+        }`}>
+          <div className="flex items-start gap-3">
+            <div className="text-2xl">⚠️</div>
+            <div className="flex-1">
+              <h3 className="font-semibold text-text mb-1">
+                {!isSecureContext ? 'HTTPS Required' : 'WebTransport Not Available'}
+              </h3>
+              <p className="text-sm text-secondary-darker">
+                {!isSecureContext ? (
+                  <>
+                    QUIC streaming requires HTTPS. You are accessing via <strong>{window.location.protocol}//{window.location.hostname}</strong>.
+                    <br />
+                    <strong>Solutions:</strong>
+                    <br />
+                    1. Use HTTPS: <code className="bg-secondary-dark px-1 rounded">https://{window.location.hostname}</code>
+                    <br />
+                    2. Use localhost: <code className="bg-secondary-dark px-1 rounded">http://localhost{window.location.port ? ':' + window.location.port : ''}</code>
+                    <br />
+                    3. For development, map IP to localhost in <code className="bg-secondary-dark px-1 rounded">/etc/hosts</code>
+                  </>
+                ) : (
+                  <>
+                    WebTransport is not supported in this browser. Please use Chrome 97+, Edge 97+, or a browser with WebTransport support.
+                    <br />
+                    The connection will fallback to WebSocket proxy if available.
+                  </>
+                )}
+              </p>
+            </div>
           </div>
+        </div>
+      )}
+
+      {/* Connection Status */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <div className={`w-3 h-3 rounded-full ${getStatusColor()}`}></div>
             <span className="text-sm text-secondary-darker capitalize">{connectionStatus}</span>
           </div>
+          {webTransportSupported && (
+            <span className="text-xs px-2 py-1 bg-green-500/20 text-green-500 rounded">
+              WebTransport ✓
+            </span>
+          )}
         </div>
+        {error && (
+          <div className="text-sm text-red-500 max-w-md truncate" title={error}>
+            {error}
+          </div>
+        )}
+      </div>
 
-        {/* Metrics */}
+      {/* Metrics */}
         {connectionStatus === 'connected' && (
           <QuicMetrics stats={stats} connectionDuration={connectionDuration} />
         )}
@@ -430,14 +563,36 @@ export const QuicStreamingClient = () => {
 
           {/* Right: Remote Video */}
           <div className="space-y-4">
-            <div className="bg-secondary rounded-lg p-4">
+            <div className="bg-secondary-dark rounded-lg p-4 border border-border">
               <h2 className="text-lg font-semibold text-text mb-4">Remote Stream</h2>
-              <div className="w-full aspect-video">
+              <div className="relative w-full aspect-video bg-black rounded-lg overflow-hidden">
                 <VideoStreamDisplay
                   streamData={receivedFrame}
-                  isLoading={connectionStatus === 'connecting'}
-                  error={error}
+                  isLoading={connectionStatus === 'connected' && isStreaming && !receivedFrame}
+                  error={connectionStatus === 'error' ? error : null}
                 />
+                {connectionStatus === 'connected' && !isStreaming && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-secondary-dark">
+                    <div className="text-center text-secondary-darker">
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        strokeWidth={1.5}
+                        stroke="currentColor"
+                        className="w-16 h-16 mx-auto mb-2 opacity-50"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z"
+                        />
+                      </svg>
+                      <p className="text-sm">Waiting for remote stream</p>
+                      <p className="text-xs mt-1">Start streaming to receive video</p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -465,7 +620,6 @@ export const QuicStreamingClient = () => {
             </button>
           </motion.div>
         )}
-      </div>
     </div>
   );
 };
